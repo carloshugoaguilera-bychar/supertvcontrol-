@@ -1,0 +1,40 @@
+name: Generar códigos por marca
+
+# Descarga la base abierta Flipper-IRDB (solo la carpeta TVs), la convierte a un
+# archivo JSON por marca y lo guarda en la carpeta brands/ de este repositorio.
+# La app descarga desde ahí solo la marca que el usuario escribe.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar este repositorio
+        uses: actions/checkout@v4
+
+      - name: Descargar la base de códigos IR (solo TVs)
+        uses: actions/checkout@v4
+        with:
+          repository: Lucaslhm/Flipper-IRDB
+          path: irdb
+          sparse-checkout: TVs
+
+      - name: Convertir a JSON por marca
+        run: python3 -I tools/build_brands.py irdb/TVs brands
+
+      - name: Guardar en el repositorio
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add brands
+          if git diff --cached --quiet; then
+            echo "Sin cambios en los códigos."
+          else
+            git commit -m "Actualizar códigos IR por marca"
+            git push
+          fi
