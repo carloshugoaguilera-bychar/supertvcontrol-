@@ -3,6 +3,7 @@ package com.claudia.controltv
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +21,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -47,6 +50,20 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private val PROTOCOLS = listOf(
+    "NEC", "NECext", "Samsung32", "SIRC", "SIRC15", "SIRC20", "RC5", "RC6", "RCA", "Kaseikyo"
+)
+
+private val MANUAL_KEYS = listOf(
+    "power" to "⏻ encender",
+    "vol_up" to "Vol +",
+    "vol_dn" to "Vol −",
+    "ch_up" to "Canal +",
+    "ch_dn" to "Canal −",
+    "mute" to "Mute",
+    "input" to "Entrada"
+)
 
 /** Un codigo que respondio al encendido, con el resultado de cada boton probado. */
 class Candidate(val profile: Profile) {
@@ -83,6 +100,11 @@ fun SearchScreen(store: TvStore, hasIr: Boolean, onSaved: () -> Unit, onBack: ()
     var selected by remember { mutableStateOf<Candidate?>(null) }
     val candidates = remember { mutableStateListOf<Candidate>() }
     var saving by remember { mutableStateOf<Candidate?>(null) }
+    var showManual by remember { mutableStateOf(false) }
+    var protoMenu by remember { mutableStateOf(false) }
+    var mProto by remember { mutableStateOf("NEC") }
+    var mAddr by remember { mutableStateOf("") }
+    val mCmds = remember { mutableStateMapOf<String, String>() }
     var saveName by remember { mutableStateOf("") }
 
     fun openBrand(b: Brand) {
@@ -198,6 +220,37 @@ fun SearchScreen(store: TvStore, hasIr: Boolean, onSaved: () -> Unit, onBack: ()
         openCandidate(p)
     }
 
+    fun hex(t: String?): Long? = t?.trim()?.replace(" ", "")?.toLongOrNull(16)
+
+    fun manualTest() {
+        val a = hex(mAddr)
+        if (a == null) {
+            error = "Escribe la dirección en hexadecimal (ej. 04)"
+            return
+        }
+        val buttons = LinkedHashMap<String, Signal>()
+        for ((key, _) in MANUAL_KEYS) {
+            val c = hex(mCmds[key])
+            if (c != null) buttons[key] = Signal(mProto, a = a, c = c)
+        }
+        val power = buttons["power"]
+        if (power == null) {
+            error = "Falta el comando de encendido (⏻)"
+            return
+        }
+        error = null
+        IrEngine.send(ctx, power)
+        val cand = Candidate(Profile(0, "Código manual " + mProto, buttons))
+        candidates.add(cand)
+        selected = cand
+    }
+
+    fun brandLabelOf(c: Candidate): String = when {
+        c.profile.n == 0 -> "Manual"
+        brand?.name == "Todas las marcas" -> c.profile.model.substringBefore(" · ")
+        else -> brand?.name ?: ""
+    }
+
     BackHandler {
         if (selected != null) {
             selected = null
@@ -225,7 +278,7 @@ fun SearchScreen(store: TvStore, hasIr: Boolean, onSaved: () -> Unit, onBack: ()
             } ?: emptyList()
             VerifyPanel(
                 c = sel,
-                brandName = data?.name ?: "",
+                brandName = brandLabelOf(sel),
                 variantCount = variants.size,
                 onBackToList = { selected = null },
                 onVariant = {
@@ -241,7 +294,7 @@ fun SearchScreen(store: TvStore, hasIr: Boolean, onSaved: () -> Unit, onBack: ()
                     }
                 },
                 onSave = {
-                    saveName = "TV " + (data?.name ?: "")
+                    saveName = "TV " + brandLabelOf(sel)
                     saving = sel
                 }
             )
@@ -270,6 +323,56 @@ fun SearchScreen(store: TvStore, hasIr: Boolean, onSaved: () -> Unit, onBack: ()
                 enabled = !loading && query.isNotBlank(),
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Buscar marca") }
+            OutlinedButton(
+                onClick = { openBrand(Brand("Todas las marcas", "todas", 0)) },
+                enabled = !loading,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("No está mi marca: probar con todas las marcas") }
+            TextButton(onClick = { showManual = !showManual }) {
+                Text(if (showManual) "Ocultar código manual" else "Escribir un código manual")
+            }
+            if (showManual) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Código manual (valores en hexadecimal)", fontWeight = FontWeight.Bold)
+                        Box {
+                            OutlinedButton(onClick = { protoMenu = true }) { Text("Protocolo: " + mProto + " ▾") }
+                            DropdownMenu(expanded = protoMenu, onDismissRequest = { protoMenu = false }) {
+                                for (pr in PROTOCOLS) {
+                                    DropdownMenuItem(
+                                        text = { Text(pr) },
+                                        onClick = {
+                                            mProto = pr
+                                            protoMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = mAddr,
+                            onValueChange = { mAddr = it.filter { ch -> ch.isDigit() || ch.lowercaseChar() in 'a'..'f' }.take(8) },
+                            label = { Text("Dirección (ej. 04)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        for ((key, label) in MANUAL_KEYS) {
+                            OutlinedTextField(
+                                value = mCmds[key] ?: "",
+                                onValueChange = {
+                                    mCmds[key] = it.filter { ch -> ch.isDigit() || ch.lowercaseChar() in 'a'..'f' }.take(8)
+                                },
+                                label = { Text("Comando " + label + " (ej. 08)") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        Button(onClick = { manualTest() }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Probar encendido")
+                        }
+                    }
+                }
+            }
 
             if (loading) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -449,7 +552,7 @@ fun SearchScreen(store: TvStore, hasIr: Boolean, onSaved: () -> Unit, onBack: ()
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val brandName = brand?.name ?: ""
+                    val brandName = brandLabelOf(c)
                     val name = saveName.trim().ifBlank { "TV " + brandName }
                     store.save(store.load() + SavedTv(System.currentTimeMillis(), name, brandName, c.profile))
                     saving = null
@@ -479,7 +582,11 @@ fun VerifyPanel(
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row { TextButton(onClick = onBackToList) { Text("← Volver") } }
-        Text("Código " + code4(c.profile.n), fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        Text(
+            if (c.profile.n == 0) "Código manual" else "Código " + code4(c.profile.n),
+            fontSize = 30.sp,
+            fontWeight = FontWeight.Bold
+        )
         Text(brandName + " · " + c.profile.model, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("Toca cada botón y marca si el TV respondió.")
 

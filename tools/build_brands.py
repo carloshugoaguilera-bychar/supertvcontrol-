@@ -109,14 +109,9 @@ def jdump(obj):
     return json.dumps(obj, separators=(",", ":"), sort_keys=True)
 
 
-def build_brand(brand_dir):
-    """
-    Devuelve la lista de perfiles de una marca (sin numerar):
-    - cada perfil conserva los botones de UN solo control (no se mezclan senales de controles distintos)
-    - se quitan los perfiles identicos y los que estan contenidos por completo en otro con el mismo encendido
-    - los encendidos mas comunes van primero y sus variantes quedan juntas
-    """
-    perfiles = OrderedDict()  # firma completa -> dict(count, model, buttons)
+def collect(brand_dir, label=""):
+    """Lee los .ir de una marca. Devuelve {firma completa: {count, model, buttons}}."""
+    perfiles = OrderedDict()
     for root, _dirs, files in os.walk(brand_dir):
         for fn in sorted(files):
             if not fn.lower().endswith(".ir"):
@@ -133,12 +128,22 @@ def build_brand(brand_dir):
                 continue
             firma = jdump(buttons)
             model = os.path.splitext(fn)[0].replace("_", " ")
+            if label:
+                model = label + " \u00b7 " + model
             if firma in perfiles:
                 perfiles[firma]["count"] += 1
             else:
                 perfiles[firma] = {"count": 1, "model": model, "buttons": buttons}
+    return perfiles
 
-    # agrupar por senal de encendido
+
+def organize(perfiles):
+    """
+    Deja la lista final de perfiles (sin numerar):
+    - cada perfil conserva los botones de UN solo control (no se mezclan senales de controles distintos)
+    - se quitan los perfiles contenidos por completo en otro con el mismo encendido
+    - los encendidos mas comunes van primero y sus variantes quedan juntas
+    """
     por_power = OrderedDict()
     for p in perfiles.values():
         por_power.setdefault(jdump(p["buttons"]["power"]), []).append(p)
@@ -163,6 +168,18 @@ def build_brand(brand_dir):
     return [p for _total, kept in grupos for p in kept]
 
 
+def write_brand(out, slug, name, perfiles):
+    data = {
+        "brand": name,
+        "profiles": [
+            {"n": i + 1, "m": g["model"], "b": g["buttons"]}
+            for i, g in enumerate(perfiles)
+        ],
+    }
+    with open(os.path.join(out, slug + ".json"), "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, separators=(",", ":"))
+
+
 def main():
     if len(sys.argv) != 3:
         print(__doc__)
@@ -171,28 +188,31 @@ def main():
     os.makedirs(out, exist_ok=True)
     index = []
     total = 0
+    todas = OrderedDict()
     for brand in sorted(os.listdir(src), key=str.lower):
         bdir = os.path.join(src, brand)
         if not os.path.isdir(bdir):
             continue
-        perfiles = build_brand(bdir)
+        marca = collect(bdir)
+        perfiles = organize(marca)
         if not perfiles:
             continue
         slug = slugify(brand)
-        data = {
-            "brand": brand,
-            "profiles": [
-                {"n": i + 1, "m": g["model"], "b": g["buttons"]}
-                for i, g in enumerate(perfiles)
-            ],
-        }
-        with open(os.path.join(out, slug + ".json"), "w", encoding="utf-8") as fh:
-            json.dump(data, fh, ensure_ascii=False, separators=(",", ":"))
+        write_brand(out, slug, brand, perfiles)
         index.append({"n": brand, "s": slug, "c": len(perfiles)})
         total += len(perfiles)
+        # para "Todas las marcas": mismos perfiles con el nombre de la marca en el modelo
+        for firma, p in collect(bdir, brand).items():
+            if firma in todas:
+                todas[firma]["count"] += p["count"]
+            else:
+                todas[firma] = p
+    perfiles_todas = organize(todas)
+    write_brand(out, "todas", "Todas las marcas", perfiles_todas)
+    index.insert(0, {"n": "Todas las marcas", "s": "todas", "c": len(perfiles_todas)})
     with open(os.path.join(out, "index.json"), "w", encoding="utf-8") as fh:
         json.dump(index, fh, ensure_ascii=False, separators=(",", ":"))
-    print("Marcas: %d | Codigos: %d" % (len(index), total))
+    print("Marcas: %d | Codigos: %d | Todas las marcas: %d" % (len(index) - 1, total, len(perfiles_todas)))
 
 
 if __name__ == "__main__":

@@ -10,6 +10,8 @@ App Android que usa el emisor infrarrojo del celular para controlar TVs.
 4. Pruebas los demás botones y marcas cuáles responden (Sí / No).
 5. Guardas el código con un nombre (ej. “TV sala”). Si hay varios que funcionan, la app muestra cuál es el mejor.
 
+Si tu marca no está, usa **“No está mi marca: probar con todas las marcas”** (prueba todos los códigos juntos) o **“Escribir un código manual”** (protocolo, dirección y comandos en hexadecimal).
+
 El **número de código** identifica un perfil completo de una marca (todos sus botones). Los más comunes van primero.
 
 ## Pasos para tenerla en el celular (sin instalar nada en la computadora)

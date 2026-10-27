@@ -59,7 +59,7 @@ val KEY_ORDER: List<String> = listOf(
 val GREEN = Color(0xFF2E7D32)
 val RED = Color(0xFFC62828)
 
-fun code4(n: Int): String = "%04d".format(n)
+fun code4(n: Int): String = if (n == 0) "manual" else "%04d".format(n)
 
 /** Boton tactil de la botonera. Con repeat=true repite mientras se mantiene presionado. */
 @Composable
