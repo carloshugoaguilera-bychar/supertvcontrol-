@@ -231,7 +231,7 @@ fun SearchScreen(store: TvStore, hasIr: Boolean, onSaved: () -> Unit, onBack: ()
         }
         val power = buttons["power"]
         if (power == null) {
-            error = "Falta el comando de encendido (⏻)"
+            error = "Falta el comando de encendido"
             return
         }
         error = null
