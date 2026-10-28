@@ -52,7 +52,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val MANUAL_KEYS = listOf(
-    "power" to "⏻ encender",
+    "power" to "Encender",
     "vol_up" to "Vol +",
     "vol_dn" to "Vol −",
     "ch_up" to "Canal +",
