@@ -42,9 +42,37 @@ ALIASES = {
     "home": {"home"},
     "exit": {"exit"},
     "info": {"info", "display"},
+    "netflix": {"netflix"},
+    "youtube": {"youtube"},
+    "prime_video": {"primevideo", "prime", "amazon"},
+    "play": {"play"},
+    "pause": {"pause"},
+    "stop": {"stop"},
+    "play_pause": {"playpause"},
+    "rewind": {"rewind", "rew"},
+    "ff": {"fastforward", "ff", "fwd", "forward"},
+    "next": {"next"},
+    "prev": {"prev", "previous"},
+    "red": {"red"},
+    "green": {"green"},
+    "yellow": {"yellow"},
+    "blue": {"blue"},
+    "guide": {"guide", "epg"},
+    "ch_list": {"chlist", "channellist", "list"},
+    "subtitle": {"subtitle", "subtitles", "cc"},
+    "sleep": {"sleep", "sleeptimer", "timer"},
+    "settings": {"settings"},
+    "tools": {"tools"},
+    "aspect": {"aspect", "aspectratio", "ratio"},
+    "audio": {"audio", "sound"},
 }
 for d in range(10):
     ALIASES["d%d" % d] = {str(d)}
+
+# Botones "base": definen cuando dos controles son el mismo y como se numeran los codigos.
+# Los botones nuevos (apps, reproduccion, colores...) viajan con el perfil pero no cambian la numeracion.
+LEGACY = {"power", "input", "mute", "vol_up", "vol_dn", "ch_up", "ch_dn", "up", "down", "left",
+          "right", "ok", "menu", "back", "home", "exit", "info"} | {"d%d" % d for d in range(10)}
 
 NAME_TO_KEY = {}
 for key, names in ALIASES.items():
@@ -126,15 +154,54 @@ def collect(brand_dir, label=""):
                     buttons[key] = sig
             if "power" not in buttons:
                 continue
-            firma = jdump(buttons)
+            firma = jdump({k: v for k, v in buttons.items() if k in LEGACY})
             model = os.path.splitext(fn)[0].replace("_", " ")
             if label:
                 model = label + " \u00b7 " + model
             if firma in perfiles:
                 perfiles[firma]["count"] += 1
+                for k, v in buttons.items():
+                    perfiles[firma]["buttons"].setdefault(k, v)
             else:
-                perfiles[firma] = {"count": 1, "model": model, "buttons": buttons}
+                perfiles[firma] = {"count": 1, "model": model, "buttons": buttons,
+                                   "brand": os.path.basename(os.path.normpath(brand_dir))}
     return perfiles
+
+
+def nbase(p):
+    return sum(1 for b in p["buttons"] if b in LEGACY)
+
+
+def fill_missing(final, pool):
+    """
+    Completa en cada perfil final los botones que le faltan usando otros controles de
+    LA MISMA MARCA que tengan el mismo protocolo y la misma direccion en el encendido.
+    Los botones completados se anotan en p["filled"] para que la app los muestre como "sin probar".
+    """
+    for p in final:
+        power = p["buttons"]["power"]
+        if power[0] == "RAW":
+            continue
+        proto, addr = power[0], power[1]
+        votes = {}
+        for q in pool:
+            if q is p or q.get("brand") != p.get("brand"):
+                continue
+            qp = q["buttons"]["power"]
+            if qp[0] != proto or qp[1] != addr:
+                continue
+            for key, sig in q["buttons"].items():
+                if key in p["buttons"]:
+                    continue
+                if sig[0] != proto or sig[1] != addr:
+                    continue
+                votes.setdefault(key, {}).setdefault(jdump(sig), [0, sig])[0] += 1
+        filled = []
+        for key, opts in votes.items():
+            best = max(opts.values(), key=lambda v: v[0])
+            p["buttons"][key] = best[1]
+            filled.append(key)
+        p["filled"] = sorted(filled)
 
 
 def organize(perfiles):
@@ -150,12 +217,12 @@ def organize(perfiles):
 
     grupos = []
     for lista in por_power.values():
-        lista.sort(key=lambda p: (-len(p["buttons"]), -p["count"]))
+        lista.sort(key=lambda p: (-nbase(p), -p["count"]))
         kept = []
         for p in lista:
             contenido = False
             for k in kept:
-                if all(k["buttons"].get(b) == s for b, s in p["buttons"].items()):
+                if all(k["buttons"].get(b) == s for b, s in p["buttons"].items() if b in LEGACY):
                     k["count"] += p["count"]
                     contenido = True
                     break
@@ -168,11 +235,16 @@ def organize(perfiles):
     return [p for _total, kept in grupos for p in kept]
 
 
+def pool_marca_etiquetada(bdir, brand):
+    return list(collect(bdir, brand).values())
+
+
 def write_brand(out, slug, name, perfiles):
     data = {
         "brand": name,
         "profiles": [
-            {"n": i + 1, "m": g["model"], "b": g["buttons"]}
+            dict({"n": i + 1, "m": g["model"], "b": g["buttons"]},
+                 **({"f": g["filled"]} if g.get("filled") else {}))
             for i, g in enumerate(perfiles)
         ],
     }
@@ -189,6 +261,7 @@ def main():
     index = []
     total = 0
     todas = OrderedDict()
+    pool_todas = []
     for brand in sorted(os.listdir(src), key=str.lower):
         bdir = os.path.join(src, brand)
         if not os.path.isdir(bdir):
@@ -198,6 +271,8 @@ def main():
         if not perfiles:
             continue
         slug = slugify(brand)
+        pool_marca = list(marca.values())
+        fill_missing(perfiles, pool_marca)
         write_brand(out, slug, brand, perfiles)
         index.append({"n": brand, "s": slug, "c": len(perfiles)})
         total += len(perfiles)
@@ -207,7 +282,9 @@ def main():
                 todas[firma]["count"] += p["count"]
             else:
                 todas[firma] = p
+        pool_todas.extend(pool_marca_etiquetada(bdir, brand))
     perfiles_todas = organize(todas)
+    fill_missing(perfiles_todas, pool_todas)
     write_brand(out, "todas", "Todas las marcas", perfiles_todas)
     index.insert(0, {"n": "Todas las marcas", "s": "todas", "c": len(perfiles_todas)})
     with open(os.path.join(out, "index.json"), "w", encoding="utf-8") as fh:

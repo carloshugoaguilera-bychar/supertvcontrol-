@@ -49,7 +49,13 @@ class Signal(
 }
 
 /** Un perfil = un "numero de codigo" de una marca, con todos sus botones. */
-class Profile(val n: Int, val model: String, val buttons: Map<String, Signal>) {
+class Profile(
+    val n: Int,
+    val model: String,
+    val buttons: Map<String, Signal>,
+    /** Botones completados desde otros controles de la misma familia (aun sin verificar). */
+    val filled: Set<String> = emptySet()
+) {
     fun toJson(): JSONObject {
         val o = JSONObject()
         o.put("n", n)
@@ -57,8 +63,17 @@ class Profile(val n: Int, val model: String, val buttons: Map<String, Signal>) {
         val b = JSONObject()
         for ((k, v) in buttons) b.put(k, v.toJson())
         o.put("b", b)
+        if (filled.isNotEmpty()) {
+            val f = JSONArray()
+            for (k in filled) f.put(k)
+            o.put("f", f)
+        }
         return o
     }
+
+    /** Copia del perfil con un boton agregado o reemplazado (queda como verificado por la usuaria). */
+    fun withButton(key: String, sig: Signal): Profile =
+        Profile(n, model, buttons + (key to sig), filled - key)
 
     companion object {
         fun fromJson(o: JSONObject): Profile {
@@ -69,7 +84,9 @@ class Profile(val n: Int, val model: String, val buttons: Map<String, Signal>) {
                 val k = keys.next()
                 map[k] = Signal.fromJson(b.getJSONArray(k))
             }
-            return Profile(o.getInt("n"), o.optString("m", ""), map)
+            val f = o.optJSONArray("f")
+            val filled = if (f == null) emptySet() else List(f.length()) { f.getString(it) }.toSet()
+            return Profile(o.getInt("n"), o.optString("m", ""), map, filled)
         }
     }
 }
@@ -117,11 +134,11 @@ class TvStore(ctx: Context) {
 object Library {
     private const val MAX_AGE_MS = 7L * 24 * 3600 * 1000
 
-    private suspend fun fetch(ctx: Context, fileName: String): String = withContext(Dispatchers.IO) {
-        val dir = File(ctx.filesDir, "brands")
+    private suspend fun fetch(ctx: Context, fileName: String, force: Boolean = false): String = withContext(Dispatchers.IO) {
+        val dir = File(ctx.filesDir, "brands2")
         dir.mkdirs()
         val cache = File(dir, fileName)
-        val fresh = cache.exists() && System.currentTimeMillis() - cache.lastModified() < MAX_AGE_MS
+        val fresh = !force && cache.exists() && System.currentTimeMillis() - cache.lastModified() < MAX_AGE_MS
         if (fresh) {
             cache.readText()
         } else {
@@ -139,22 +156,49 @@ object Library {
         }
     }
 
-    suspend fun index(ctx: Context): List<Brand> {
-        val arr = JSONArray(fetch(ctx, "index.json"))
+    suspend fun index(ctx: Context, force: Boolean = false): List<Brand> {
+        val arr = JSONArray(fetch(ctx, "index.json", force))
         return List(arr.length()) {
             val o = arr.getJSONObject(it)
             Brand(o.getString("n"), o.getString("s"), o.getInt("c"))
         }
     }
 
-    suspend fun brand(ctx: Context, b: Brand): BrandData {
-        val o = JSONObject(fetch(ctx, b.slug + ".json"))
+    suspend fun brand(ctx: Context, b: Brand, force: Boolean = false): BrandData {
+        val o = JSONObject(fetch(ctx, b.slug + ".json", force))
         val arr = o.getJSONArray("profiles")
         val list = List(arr.length()) { Profile.fromJson(arr.getJSONObject(it)) }
         return BrandData(o.optString("brand", b.name), list)
     }
 
     private fun norm(s: String): String = s.lowercase().filter { it.isLetterOrDigit() }
+
+    /**
+     * Completa un TV ya guardado: busca en la base los controles de su marca con el mismo encendido
+     * y agrega los botones que le faltan. Devuelve null si no se puede (marca no encontrada, RAW, manual).
+     */
+    suspend fun complete(ctx: Context, tv: SavedTv): Profile? {
+        val power = tv.profile.buttons["power"] ?: return null
+        if (power.proto == "RAW") return null
+        val b = index(ctx, force = true).firstOrNull { norm(it.name) == norm(tv.brand) } ?: return null
+        val data = brand(ctx, b, force = true)
+        val same = data.profiles
+            .filter { it.buttons["power"]?.key == power.key }
+            .sortedByDescending { it.buttons.size }
+        if (same.isEmpty()) return null
+        val merged = LinkedHashMap(tv.profile.buttons)
+        val added = HashSet<String>()
+        for (cand in same) {
+            for ((k, v) in cand.buttons) {
+                if (merged.containsKey(k)) continue
+                if (v.proto != power.proto || v.a != power.a) continue
+                merged[k] = v
+                added.add(k)
+            }
+        }
+        if (added.isEmpty()) return tv.profile
+        return Profile(tv.profile.n, tv.profile.model, merged, tv.profile.filled + added)
+    }
 
     /** Busca por nombre: si hay coincidencia exacta devuelve solo esa; si no, las que contengan el texto. */
     fun search(index: List<Brand>, query: String): List<Brand> {

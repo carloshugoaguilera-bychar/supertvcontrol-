@@ -51,10 +51,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val PROTOCOLS = listOf(
-    "NEC", "NECext", "Samsung32", "SIRC", "SIRC15", "SIRC20", "RC5", "RC6", "RCA", "Kaseikyo"
-)
-
 private val MANUAL_KEYS = listOf(
     "power" to "⏻ encender",
     "vol_up" to "Vol +",
@@ -595,7 +591,7 @@ fun VerifyPanel(
                 for (k in row) {
                     val r = c.results[k]
                     IrKey(
-                        label = KEY_LABEL[k] ?: k,
+                        label = (KEY_LABEL[k] ?: k) + (if (c.profile.filled.contains(k)) "*" else ""),
                         enabled = true,
                         modifier = Modifier
                             .weight(1f)
@@ -646,6 +642,12 @@ fun VerifyPanel(
         }
         sendError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
+        if (c.profile.filled.isNotEmpty()) {
+            Text(
+                "* Botón completado de otros controles de la misma familia: pruébalo para confirmar.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Text(
             "Responden: " + c.ok() + " · No responden: " + c.bad() + " · Sin probar: " + (keys.size - c.results.size),
             fontWeight = FontWeight.SemiBold

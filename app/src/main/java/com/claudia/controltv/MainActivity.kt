@@ -39,6 +39,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedButton
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -94,7 +98,14 @@ fun AppRoot() {
                     if (tv == null) {
                         LaunchedEffect(Unit) { screen = Screen.Home }
                     } else {
-                        RemoteScreen(tv = tv, onBack = { screen = Screen.Home })
+                        RemoteScreen(
+                            tv = tv,
+                            onBack = { screen = Screen.Home },
+                            onUpdate = { updated ->
+                                tvs = tvs.map { if (it.id == updated.id) updated else it }
+                                store.save(tvs)
+                            }
+                        )
                     }
                 }
             }
@@ -209,10 +220,15 @@ fun HomeScreen(
 }
 
 @Composable
-fun RemoteScreen(tv: SavedTv, onBack: () -> Unit) {
+fun RemoteScreen(tv: SavedTv, onBack: () -> Unit, onUpdate: (SavedTv) -> Unit) {
     val ctx = LocalContext.current
-    var showNumbers by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var showNumbers by remember { mutableStateOf(true) }
+    var showMore by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf<String?>(null) }
+    var info by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var adding by remember { mutableStateOf(false) }
     val p = tv.profile
 
     BackHandler { onBack() }
@@ -288,6 +304,12 @@ fun RemoteScreen(tv: SavedTv, onBack: () -> Unit) {
             Text(if (showNumbers) "Ocultar números" else "Mostrar números")
         }
         if (showNumbers) {
+            if (KEYS_NUMBERS.none { p.buttons.containsKey(it) }) {
+                Text(
+                    "Este código no trae números. Usa “Completar botones” o “Agregar botón a mano”.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             for (row in listOf(listOf("d1", "d2", "d3"), listOf("d4", "d5", "d6"), listOf("d7", "d8", "d9"))) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     for (k in row) RemoteKey(p, k, ::press)
@@ -300,6 +322,80 @@ fun RemoteScreen(tv: SavedTv, onBack: () -> Unit) {
             }
         }
 
+        TextButton(onClick = { showMore = !showMore }) {
+            Text(if (showMore) "Ocultar más funciones" else "Más funciones")
+        }
+        if (showMore) {
+            val groups = listOf(
+                "Apps" to KEYS_APPS,
+                "Reproducción" to KEYS_PLAY,
+                "Colores y guía" to KEYS_COLORS,
+                "Ajustes e imagen" to KEYS_SETTINGS
+            )
+            var any = false
+            for ((title, keys) in groups) {
+                if (keys.none { p.buttons.containsKey(it) }) continue
+                any = true
+                Text(title, fontWeight = FontWeight.SemiBold)
+                KeyGrid(p, keys, ::press)
+            }
+            if (!any) {
+                Text(
+                    "Este código no trae más funciones. Usa “Completar botones” o “Agregar botón a mano”.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        HorizontalDivider()
+        Button(
+            onClick = {
+                scope.launch {
+                    busy = true
+                    info = null
+                    try {
+                        val done = Library.complete(ctx, tv)
+                        if (done == null) {
+                            info = "No pude completar este TV (necesita internet y una marca de la lista)."
+                        } else if (done.filled.size == p.filled.size && done.buttons.size == p.buttons.size) {
+                            info = "No encontré botones nuevos para este código."
+                        } else {
+                            val added = done.buttons.size - p.buttons.size
+                            onUpdate(SavedTv(tv.id, tv.name, tv.brand, done))
+                            info = "Se agregaron " + added + " botones (no probados). Pruébalos y corrige a mano los que no respondan."
+                        }
+                    } catch (e: Exception) {
+                        info = "No se pudo descargar la base (" + (e.message ?: "error") + ")."
+                    }
+                    busy = false
+                }
+            },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth()
+        ) { Text(if (busy) "Completando…" else "Completar botones desde la base") }
+        OutlinedButton(onClick = { adding = true }, modifier = Modifier.fillMaxWidth()) {
+            Text("Agregar botón a mano")
+        }
+        info?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
         msg?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        Spacer(Modifier.height(24.dp))
+    }
+
+    if (adding) {
+        val power = p.buttons["power"]
+        AddButtonDialog(
+            initialKey = KEYS_NUMBERS.firstOrNull { !p.buttons.containsKey(it) } ?: "d0",
+            protoHint = power?.proto ?: "NEC",
+            addrHint = if (power != null && power.proto != "RAW") "%02X".format(power.a) else "",
+            onTest = { sig ->
+                msg = if (IrEngine.send(ctx, sig)) null else "No se pudo enviar: ¿el celular tiene emisor IR?"
+            },
+            onSave = { key, sig ->
+                onUpdate(SavedTv(tv.id, tv.name, tv.brand, p.withButton(key, sig)))
+                adding = false
+                info = "Botón “" + (KEY_LABEL[key] ?: key) + "” guardado."
+            },
+            onDismiss = { adding = false }
+        )
     }
 }
