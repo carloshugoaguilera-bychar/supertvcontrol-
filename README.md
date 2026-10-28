@@ -12,7 +12,7 @@ App Android que usa el emisor infrarrojo del celular para controlar TVs.
 
 Si tu marca no está, usa **“No está mi marca: probar con todas las marcas”** (prueba todos los códigos juntos) o **“Escribir un código manual”** (protocolo, dirección y comandos en hexadecimal).
 
-**Botonera ampliada:** números 0-9, apps (Netflix, YouTube, Prime), reproducción, colores y guía, ajustes (Settings, Tools, Aspecto, Audio) y Sleep. Los botones que le faltan a un código se completan con otros controles de la misma marca, mismo protocolo y misma dirección (se marcan con * hasta que los pruebes). En un TV guardado, el botón **Completar botones desde la base** hace lo mismo, y **Agregar botón a mano** permite escribir protocolo, dirección y comando.
+**Botonera ampliada:** números 0-9, apps (Netflix, YouTube, Prime), reproducción, colores y guía, ajustes (Settings, Tools, Aspecto, Audio) y Sleep. Los botones que le faltan a un código se completan con otros controles de la misma marca, mismo protocolo y misma dirección (se marcan con * hasta que los pruebes). En un TV guardado, el botón **Completar botones desde la base** hace lo mismo, **Buscar comando de un botón** prueba comandos uno por uno (con el protocolo y la dirección de tu TV) hasta que el TV responde, y lo guarda en el botón que elijas. **Agregar botón a mano** permite escribir protocolo, dirección y comando.
 
 El **número de código** identifica un perfil completo de una marca (todos sus botones). Los más comunes van primero.
 
@@ -37,6 +37,7 @@ La app toma sola la dirección de descarga de tu repositorio (usuario/repo), no 
 | `app/src/main/java/com/claudia/controltv/Ui.kt` | Botones de la botonera |
 | `app/src/main/java/com/claudia/controltv/MainActivity.kt` | Pantalla de inicio y botonera de cada TV |
 | `app/src/main/java/com/claudia/controltv/ManualDialog.kt` | Ventana para agregar un botón a mano |
+| `app/src/main/java/com/claudia/controltv/ScanDialog.kt` | Búsqueda de comando de un botón |
 | `app/src/main/java/com/claudia/controltv/SearchScreen.kt` | Buscar marca, probar rango, verificar botones y guardar |
 | `tools/build_brands.py` | Convierte la base Flipper-IRDB a JSON por marca |
 | `.github/workflows/generar-codigos.yml` | Genera la carpeta `brands/` |

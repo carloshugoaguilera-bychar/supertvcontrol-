@@ -229,6 +229,7 @@ fun RemoteScreen(tv: SavedTv, onBack: () -> Unit, onUpdate: (SavedTv) -> Unit) {
     var info by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
+    var scanning by remember { mutableStateOf(false) }
     val p = tv.profile
 
     BackHandler { onBack() }
@@ -306,7 +307,7 @@ fun RemoteScreen(tv: SavedTv, onBack: () -> Unit, onUpdate: (SavedTv) -> Unit) {
         if (showNumbers) {
             if (KEYS_NUMBERS.none { p.buttons.containsKey(it) }) {
                 Text(
-                    "Este código no trae números. Usa “Completar botones” o “Agregar botón a mano”.",
+                    "Este código no trae números. Usa “Buscar comando” o “Agregar botón a mano”.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -341,7 +342,7 @@ fun RemoteScreen(tv: SavedTv, onBack: () -> Unit, onUpdate: (SavedTv) -> Unit) {
             }
             if (!any) {
                 Text(
-                    "Este código no trae más funciones. Usa “Completar botones” o “Agregar botón a mano”.",
+                    "Este código no trae más funciones. Usa “Buscar comando” o “Agregar botón a mano”.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -373,12 +374,25 @@ fun RemoteScreen(tv: SavedTv, onBack: () -> Unit, onUpdate: (SavedTv) -> Unit) {
             enabled = !busy,
             modifier = Modifier.fillMaxWidth()
         ) { Text(if (busy) "Completando…" else "Completar botones desde la base") }
+        OutlinedButton(onClick = { scanning = true }, modifier = Modifier.fillMaxWidth()) {
+            Text("Buscar comando de un botón")
+        }
         OutlinedButton(onClick = { adding = true }, modifier = Modifier.fillMaxWidth()) {
             Text("Agregar botón a mano")
         }
         info?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
         msg?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (scanning) {
+        ScanCommandDialog(
+            profile = p,
+            onSave = { key, sig ->
+                onUpdate(SavedTv(tv.id, tv.name, tv.brand, p.withButton(key, sig)))
+            },
+            onDismiss = { scanning = false }
+        )
     }
 
     if (adding) {
