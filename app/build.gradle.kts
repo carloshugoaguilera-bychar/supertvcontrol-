@@ -15,13 +15,24 @@ android {
         applicationId = "com.claudia.controltv"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
+        // sube con cada compilacion de GitHub, asi Android siempre lo ve como actualizacion
+        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionName = "1.0"
         buildConfigField(
             "String",
             "BRANDS_URL",
             "\"https://raw.githubusercontent.com/$repo/main/brands/\""
         )
+    }
+
+    // Firma fija: sin esto cada compilacion de GitHub firma distinto y Android no deja actualizar.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
